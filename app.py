@@ -199,17 +199,17 @@ if uploaded_file:
         st.subheader("📧 Automated Email Alert Trigger")
         st.info(f"This will send an alert email listing all riders with COD > AED {threshold}, their breach count, and recommended action.")
 
-        with st.expander("⚙️ Email Configuration", expanded=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                sender_email    = st.text_input("Your Gmail address:", placeholder="yourname@gmail.com")
-                sender_password = st.text_input("Gmail App Password:", type="password",
-                                                help="Use a Gmail App Password (not your regular password). Go to Google Account → Security → App Passwords.")
-            with col2:
-                recipient_email = st.text_input("Send alert to:", placeholder="manager@noon.com")
-                cc_email        = st.text_input("CC (optional):", placeholder="hr@noon.com")
-                email_subject   = st.text_input("Email subject:",
-                                                value=f"⚠️ COD Alert — {len(action_display)} Riders Exceed AED {threshold} | {datetime.date.today().strftime('%d %b %Y')}")
+        st.markdown("**Fill in the details below, then click Send:**")
+        col1, col2 = st.columns(2)
+        with col1:
+            sender_email    = st.text_input("Your Gmail address:", placeholder="yourname@gmail.com")
+            sender_password = st.text_input("Gmail App Password:", type="password",
+                                            help="Go to Google Account → Security → 2-Step Verification → App Passwords. Use this, NOT your regular password.")
+        with col2:
+            recipient_email = st.text_input("Send alert to:", placeholder="manager@noon.com")
+            cc_email        = st.text_input("CC (optional):", placeholder="hr@noon.com")
+            email_subject   = st.text_input("Email subject:",
+                                            value=f"⚠️ COD Alert — {len(action_display)} Riders Exceed AED {threshold} | {datetime.date.today().strftime('%d %b %Y')}")
 
         # Email preview
         flagged_riders = action_display[action_display["RecommendedAction"] != "No Action"].copy() if not action_display.empty else pd.DataFrame()
