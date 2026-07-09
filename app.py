@@ -4,11 +4,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
 from io import BytesIO
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
+import requests
+import base64
 import datetime
 
 st.set_page_config(page_title="COD Alert Dashboard", layout="wide", page_icon="💰")
@@ -243,11 +240,22 @@ if uploaded_file:
             st.session_state.email_status = None
             st.session_state.email_msg    = ""
 
+        with st.expander("ℹ️ How to get a free SendGrid API Key (one-time setup)"):
+            st.markdown("""
+            1. Go to [sendgrid.com](https://sendgrid.com) → **Start for Free**
+            2. Sign up with any email
+            3. After login → **Settings → API Keys → Create API Key**
+            4. Name it "noon Dashboard" → **Full Access** → Create
+            5. Copy the key (starts with `SG.`) and paste below
+            6. Also verify your sender email: **Settings → Sender Authentication → Single Sender Verify**
+            """)
+
         with st.form("email_form"):
             col1, col2 = st.columns(2)
             with col1:
-                sender_email    = st.text_input("Your Gmail address:", placeholder="yourname@gmail.com")
-                sender_password = st.text_input("Gmail App Password (16 chars):", type="password")
+                sg_api_key      = st.text_input("SendGrid API Key:", placeholder="SG.xxxxxxxx", type="password")
+                sender_email    = st.text_input("Your verified sender email:", placeholder="yourname@gmail.com",
+                                                help="Must be verified in SendGrid Sender Authentication")
             with col2:
                 recipient_email = st.text_input("Send alert to:", placeholder="manager@noon.com")
                 cc_email        = st.text_input("CC (optional):", placeholder="hr@noon.com")
@@ -256,49 +264,48 @@ if uploaded_file:
             send_clicked = st.form_submit_button("📤 Send Alert Email", type="primary", use_container_width=True)
 
         if send_clicked:
-            if not sender_email or not sender_password or not recipient_email:
+            if not sg_api_key or not sender_email or not recipient_email:
                 st.session_state.email_status = "error"
-                st.session_state.email_msg    = "❌ Please fill in your Gmail address, App Password, and recipient email."
+                st.session_state.email_msg    = "❌ Please fill in the SendGrid API Key, sender email, and recipient email."
             else:
-                try:
-                    msg = MIMEMultipart("alternative")
-                    msg["Subject"] = email_subject
-                    msg["From"]    = sender_email
-                    msg["To"]      = recipient_email
-                    if cc_email:
-                        msg["Cc"] = cc_email
-                    msg.attach(MIMEText(email_html, "html"))
+                # Build Excel attachment
+                report_bytes = BytesIO()
+                with pd.ExcelWriter(report_bytes, engine="openpyxl") as w:
+                    action_display.to_excel(w, sheet_name="COD Alert Report", index=False)
+                attachment_b64 = base64.b64encode(report_bytes.getvalue()).decode()
 
-                    report_bytes = BytesIO()
-                    with pd.ExcelWriter(report_bytes, engine="openpyxl") as w:
-                        action_display.to_excel(w, sheet_name="COD Alert Report", index=False)
-                    attachment = MIMEBase("application", "octet-stream")
-                    attachment.set_payload(report_bytes.getvalue())
-                    encoders.encode_base64(attachment)
-                    attachment.add_header("Content-Disposition",
-                                          f"attachment; filename=COD_Alert_{datetime.date.today()}.xlsx")
-                    msg.attach(attachment)
+                to_list = [{"email": recipient_email}]
+                if cc_email:
+                    to_list.append({"email": cc_email})
 
-                    # Port 587 + STARTTLS — works on Streamlit Cloud
-                    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-                        server.ehlo()
-                        server.starttls()
-                        server.login(sender_email, sender_password)
-                        server.sendmail(sender_email,
-                                        [recipient_email] + ([cc_email] if cc_email else []),
-                                        msg.as_string())
+                payload = {
+                    "personalizations": [{"to": to_list}],
+                    "from": {"email": sender_email},
+                    "subject": email_subject,
+                    "content": [{"type": "text/html", "value": email_html}],
+                    "attachments": [{
+                        "content": attachment_b64,
+                        "type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "filename": f"COD_Alert_{datetime.date.today()}.xlsx"
+                    }]
+                }
+
+                response = requests.post(
+                    "https://api.sendgrid.com/v3/mail/send",
+                    headers={"Authorization": f"Bearer {sg_api_key}", "Content-Type": "application/json"},
+                    json=payload
+                )
+
+                if response.status_code in [200, 202]:
                     st.session_state.email_status = "success"
                     st.session_state.email_msg    = (
                         f"✅ Alert sent to **{recipient_email}**" +
                         (f" and CC'd **{cc_email}**" if cc_email else "") +
                         " — Excel report attached!"
                     )
-                except smtplib.SMTPAuthenticationError:
+                else:
                     st.session_state.email_status = "error"
-                    st.session_state.email_msg    = "❌ Authentication failed. Use a Gmail App Password (16 chars), not your regular password."
-                except Exception as e:
-                    st.session_state.email_status = "error"
-                    st.session_state.email_msg    = f"❌ Failed to send: {str(e)}"
+                    st.session_state.email_msg    = f"❌ SendGrid error {response.status_code}: {response.text}"
 
         # Show persistent result (survives rerun)
         if st.session_state.email_status == "success":
