@@ -238,6 +238,11 @@ if uploaded_file:
             5. Copy the 16-character password — use that below, not your regular password
             """)
 
+        # Persist email result across reruns
+        if "email_status" not in st.session_state:
+            st.session_state.email_status = None
+            st.session_state.email_msg    = ""
+
         with st.form("email_form"):
             col1, col2 = st.columns(2)
             with col1:
@@ -252,40 +257,54 @@ if uploaded_file:
 
         if send_clicked:
             if not sender_email or not sender_password or not recipient_email:
-                st.error("❌ Please fill in your Gmail address, App Password, and recipient email before sending.")
+                st.session_state.email_status = "error"
+                st.session_state.email_msg    = "❌ Please fill in your Gmail address, App Password, and recipient email."
             else:
-                with st.spinner("Sending email..."):
-                    try:
-                        msg = MIMEMultipart("alternative")
-                        msg["Subject"] = email_subject
-                        msg["From"]    = sender_email
-                        msg["To"]      = recipient_email
-                        if cc_email:
-                            msg["Cc"] = cc_email
-                        msg.attach(MIMEText(email_html, "html"))
+                try:
+                    msg = MIMEMultipart("alternative")
+                    msg["Subject"] = email_subject
+                    msg["From"]    = sender_email
+                    msg["To"]      = recipient_email
+                    if cc_email:
+                        msg["Cc"] = cc_email
+                    msg.attach(MIMEText(email_html, "html"))
 
-                        report_bytes = BytesIO()
-                        with pd.ExcelWriter(report_bytes, engine="openpyxl") as w:
-                            action_display.to_excel(w, sheet_name="COD Alert Report", index=False)
-                        attachment = MIMEBase("application", "octet-stream")
-                        attachment.set_payload(report_bytes.getvalue())
-                        encoders.encode_base64(attachment)
-                        attachment.add_header("Content-Disposition",
-                                              f"attachment; filename=COD_Alert_{datetime.date.today()}.xlsx")
-                        msg.attach(attachment)
+                    report_bytes = BytesIO()
+                    with pd.ExcelWriter(report_bytes, engine="openpyxl") as w:
+                        action_display.to_excel(w, sheet_name="COD Alert Report", index=False)
+                    attachment = MIMEBase("application", "octet-stream")
+                    attachment.set_payload(report_bytes.getvalue())
+                    encoders.encode_base64(attachment)
+                    attachment.add_header("Content-Disposition",
+                                          f"attachment; filename=COD_Alert_{datetime.date.today()}.xlsx")
+                    msg.attach(attachment)
 
-                        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-                            server.login(sender_email, sender_password)
-                            server.sendmail(sender_email,
-                                            [recipient_email] + ([cc_email] if cc_email else []),
-                                            msg.as_string())
-                        st.success(f"✅ Alert sent to **{recipient_email}**" +
-                                   (f" and CC'd **{cc_email}**" if cc_email else "") +
-                                   " — Excel report attached!")
-                    except smtplib.SMTPAuthenticationError:
-                        st.error("❌ Authentication failed. Use a Gmail App Password (16 chars), not your regular password.")
-                    except Exception as e:
-                        st.error(f"❌ Failed to send: {str(e)}")
+                    # Port 587 + STARTTLS — works on Streamlit Cloud
+                    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                        server.ehlo()
+                        server.starttls()
+                        server.login(sender_email, sender_password)
+                        server.sendmail(sender_email,
+                                        [recipient_email] + ([cc_email] if cc_email else []),
+                                        msg.as_string())
+                    st.session_state.email_status = "success"
+                    st.session_state.email_msg    = (
+                        f"✅ Alert sent to **{recipient_email}**" +
+                        (f" and CC'd **{cc_email}**" if cc_email else "") +
+                        " — Excel report attached!"
+                    )
+                except smtplib.SMTPAuthenticationError:
+                    st.session_state.email_status = "error"
+                    st.session_state.email_msg    = "❌ Authentication failed. Use a Gmail App Password (16 chars), not your regular password."
+                except Exception as e:
+                    st.session_state.email_status = "error"
+                    st.session_state.email_msg    = f"❌ Failed to send: {str(e)}"
+
+        # Show persistent result (survives rerun)
+        if st.session_state.email_status == "success":
+            st.success(st.session_state.email_msg)
+        elif st.session_state.email_status == "error":
+            st.error(st.session_state.email_msg)
 
         # ── Export ───────────────────────────────────────────────────────
         st.subheader("⬇️ Export Report")
