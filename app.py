@@ -262,6 +262,12 @@ if uploaded_file:
             send_clicked = st.form_submit_button("📤 Send Alert Email", type="primary", use_container_width=True)
 
         if send_clicked:
+            def _clean(_s):
+                return _s.strip().replace("\u200b", "").replace("\u200c", "").replace("\u200d", "").replace("\ufeff", "")
+            sg_api_key = _clean(sg_api_key)
+            sender_email = _clean(sender_email)
+            recipient_email = _clean(recipient_email)
+            cc_email = _clean(cc_email)
             if not sg_api_key or not sender_email or not recipient_email:
                 st.session_state.email_status = "error"
                 st.session_state.email_msg    = "❌ Please fill in the SendGrid API Key, sender email, and recipient email."
