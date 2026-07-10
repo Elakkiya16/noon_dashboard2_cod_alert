@@ -265,6 +265,9 @@ if uploaded_file:
             if not sg_api_key or not sender_email or not recipient_email:
                 st.session_state.email_status = "error"
                 st.session_state.email_msg    = "❌ Please fill in the SendGrid API Key, sender email, and recipient email."
+            elif any(ord(ch) > 127 for ch in (sg_api_key + sender_email + recipient_email + cc_email)):
+                st.session_state.email_status = "error"
+                st.session_state.email_msg    = "❌ The API Key, sender email, recipient email, or CC field contains an invalid non-English character (often introduced by copy-pasting). Please retype these fields using standard keyboard characters and try again."
             else:
                 report_bytes = BytesIO()
                 with pd.ExcelWriter(report_bytes, engine="openpyxl") as w:
