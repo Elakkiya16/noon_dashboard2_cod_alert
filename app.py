@@ -7,6 +7,7 @@ from io import BytesIO
 import requests
 import base64
 import datetime
+import json
 
 st.set_page_config(page_title="COD Alert Dashboard", layout="wide", page_icon="💰")
 
@@ -295,8 +296,8 @@ if uploaded_file:
                 try:
                     response = requests.post(
                         "https://api.sendgrid.com/v3/mail/send",
-                        headers={"Authorization": f"Bearer {sg_api_key}", "Content-Type": "application/json"},
-                        json=payload,
+                        headers={"Authorization": f"Bearer {sg_api_key}", "Content-Type": "application/json; charset=utf-8"},
+                        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                         timeout=15
                     )
                     if response.status_code in [200, 202]:
