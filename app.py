@@ -191,12 +191,7 @@ if uploaded_file:
                            annotation_text=f"Threshold: AED {threshold}")
         st.plotly_chart(fig_hist, use_container_width=True)
 
-        # ── SECTION 7: Email Trigger ──────────────────────────────────────
-        st.markdown("---")
-        st.subheader("📧 Automated Email Alert Trigger")
-        st.info(f"This will send an alert email listing all riders with COD > AED {threshold}, their breach count, and recommended action.")
-
-        # Build email preview from flagged riders
+        # ── SECTION 7: Build email content & save to session_state ───────
         flagged_riders = action_display[action_display["RecommendedAction"] != "No Action"].copy() if not action_display.empty else pd.DataFrame()
         rider_rows = ""
         for _, row in flagged_riders.iterrows():
@@ -222,24 +217,28 @@ if uploaded_file:
           </div>
         </body></html>"""
 
+        # Save to session_state — persists across Streamlit reruns caused by form submit
+        st.session_state.dash2_data = {
+            "action_display": action_display,
+            "email_html":     email_html,
+            "flagged_count":  len(flagged_riders),
+            "threshold":      threshold,
+            "rider_summary":  rider_summary,
+            "flagged":        flagged,
+        }
+
+    # ── EMAIL TRIGGER + EXPORT — outside button block so they survive reruns ──
+    if "dash2_data" in st.session_state:
+        d = st.session_state.dash2_data
+
+        st.markdown("---")
+        st.subheader("📧 Automated Email Alert Trigger")
+        st.info(f"This will send an alert email listing all riders with COD > AED {d['threshold']}, their breach count, and recommended action.")
+
         st.subheader("📄 Email Preview")
-        st.components.v1.html(email_html, height=380, scrolling=True)
+        st.components.v1.html(d["email_html"], height=380, scrolling=True)
 
         st.markdown("**📬 Send this alert:**")
-        with st.expander("ℹ️ How to get a Gmail App Password (read before filling in below)"):
-            st.markdown("""
-            1. Go to [myaccount.google.com](https://myaccount.google.com)
-            2. **Security → 2-Step Verification** (must be enabled first)
-            3. Scroll down → **App Passwords**
-            4. Select app: **Mail** | Device: **Other** → name it "noon Dashboard"
-            5. Copy the 16-character password — use that below, not your regular password
-            """)
-
-        # Persist email result across reruns
-        if "email_status" not in st.session_state:
-            st.session_state.email_status = None
-            st.session_state.email_msg    = ""
-
         with st.expander("ℹ️ How to get a free SendGrid API Key (one-time setup)"):
             st.markdown("""
             1. Go to [sendgrid.com](https://sendgrid.com) → **Start for Free**
@@ -250,17 +249,21 @@ if uploaded_file:
             6. Also verify your sender email: **Settings → Sender Authentication → Single Sender Verify**
             """)
 
+        if "email_status" not in st.session_state:
+            st.session_state.email_status = None
+            st.session_state.email_msg    = ""
+
         with st.form("email_form"):
             col1, col2 = st.columns(2)
             with col1:
-                sg_api_key      = st.text_input("SendGrid API Key:", placeholder="SG.xxxxxxxx", type="password")
-                sender_email    = st.text_input("Your verified sender email:", placeholder="yourname@gmail.com",
-                                                help="Must be verified in SendGrid Sender Authentication")
+                sg_api_key   = st.text_input("SendGrid API Key:", placeholder="SG.xxxxxxxx", type="password")
+                sender_email = st.text_input("Your verified sender email:", placeholder="yourname@gmail.com",
+                                             help="Must be verified in SendGrid Sender Authentication")
             with col2:
                 recipient_email = st.text_input("Send alert to:", placeholder="manager@noon.com")
                 cc_email        = st.text_input("CC (optional):", placeholder="hr@noon.com")
             email_subject = st.text_input("Subject:",
-                value=f"⚠️ COD Alert — {len(flagged_riders)} Riders Exceed AED {threshold} | {datetime.date.today().strftime('%d %b %Y')}")
+                value=f"⚠️ COD Alert — {d['flagged_count']} Riders Exceed AED {d['threshold']} | {datetime.date.today().strftime('%d %b %Y')}")
             send_clicked = st.form_submit_button("📤 Send Alert Email", type="primary", use_container_width=True)
 
         if send_clicked:
@@ -268,10 +271,9 @@ if uploaded_file:
                 st.session_state.email_status = "error"
                 st.session_state.email_msg    = "❌ Please fill in the SendGrid API Key, sender email, and recipient email."
             else:
-                # Build Excel attachment
                 report_bytes = BytesIO()
                 with pd.ExcelWriter(report_bytes, engine="openpyxl") as w:
-                    action_display.to_excel(w, sheet_name="COD Alert Report", index=False)
+                    d["action_display"].to_excel(w, sheet_name="COD Alert Report", index=False)
                 attachment_b64 = base64.b64encode(report_bytes.getvalue()).decode()
 
                 to_list = [{"email": recipient_email}]
@@ -280,34 +282,37 @@ if uploaded_file:
 
                 payload = {
                     "personalizations": [{"to": to_list}],
-                    "from": {"email": sender_email},
-                    "subject": email_subject,
-                    "content": [{"type": "text/html", "value": email_html}],
-                    "attachments": [{
-                        "content": attachment_b64,
-                        "type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "from":             {"email": sender_email},
+                    "subject":          email_subject,
+                    "content":          [{"type": "text/html", "value": d["email_html"]}],
+                    "attachments":      [{
+                        "content":  attachment_b64,
+                        "type":     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         "filename": f"COD_Alert_{datetime.date.today()}.xlsx"
                     }]
                 }
 
-                response = requests.post(
-                    "https://api.sendgrid.com/v3/mail/send",
-                    headers={"Authorization": f"Bearer {sg_api_key}", "Content-Type": "application/json"},
-                    json=payload
-                )
-
-                if response.status_code in [200, 202]:
-                    st.session_state.email_status = "success"
-                    st.session_state.email_msg    = (
-                        f"✅ Alert sent to **{recipient_email}**" +
-                        (f" and CC'd **{cc_email}**" if cc_email else "") +
-                        " — Excel report attached!"
+                try:
+                    response = requests.post(
+                        "https://api.sendgrid.com/v3/mail/send",
+                        headers={"Authorization": f"Bearer {sg_api_key}", "Content-Type": "application/json"},
+                        json=payload,
+                        timeout=15
                     )
-                else:
+                    if response.status_code in [200, 202]:
+                        st.session_state.email_status = "success"
+                        st.session_state.email_msg    = (
+                            f"✅ Alert sent to **{recipient_email}**" +
+                            (f" and CC'd **{cc_email}**" if cc_email else "") +
+                            " — Excel report attached!"
+                        )
+                    else:
+                        st.session_state.email_status = "error"
+                        st.session_state.email_msg    = f"❌ SendGrid error {response.status_code}: {response.text}"
+                except Exception as e:
                     st.session_state.email_status = "error"
-                    st.session_state.email_msg    = f"❌ SendGrid error {response.status_code}: {response.text}"
+                    st.session_state.email_msg    = f"❌ Request failed: {str(e)}"
 
-        # Show persistent result (survives rerun)
         if st.session_state.email_status == "success":
             st.success(st.session_state.email_msg)
         elif st.session_state.email_status == "error":
@@ -317,10 +322,10 @@ if uploaded_file:
         st.subheader("⬇️ Export Report")
         out = BytesIO()
         with pd.ExcelWriter(out, engine="openpyxl") as writer:
-            rider_summary.to_excel(writer, sheet_name="Rider Summary", index=False)
-            if not flagged.empty:
-                flagged.to_excel(writer, sheet_name="Flagged Entries", index=False)
-            action_display.to_excel(writer, sheet_name="Action Plan", index=False)
+            d["rider_summary"].to_excel(writer, sheet_name="Rider Summary", index=False)
+            if not d["flagged"].empty:
+                d["flagged"].to_excel(writer, sheet_name="Flagged Entries", index=False)
+            d["action_display"].to_excel(writer, sheet_name="Action Plan", index=False)
         st.download_button("Download Excel Report", out.getvalue(),
                            file_name="cod_alert_report.xlsx",
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
