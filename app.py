@@ -288,10 +288,15 @@ if uploaded_file:
                 }
 
                 try:
+                    body_bytes = json.dumps(payload, ensure_ascii=True).encode("ascii")
                     response = requests.post(
                         "https://api.sendgrid.com/v3/mail/send",
-                        headers={"Authorization": f"Bearer {sg_api_key}", "Content-Type": "application/json; charset=utf-8"},
-                        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                        headers={
+                            "Authorization": "Bearer " + sg_api_key,
+                            "Content-Type": "application/json",
+                            "Content-Length": str(len(body_bytes)),
+                        },
+                        data=body_bytes,
                         timeout=15
                     )
                     if response.status_code in [200, 202]:
