@@ -58,7 +58,6 @@ if uploaded_file:
 
         st.markdown("---")
 
-        # ── KPI Cards ───────────────────────────────────────────────────
         c1, c2, c3, c4 = st.columns(4)
         flagged = df[df["COD"] > threshold]
         c1.metric("Total Riders", df["Rider"].nunique())
@@ -68,7 +67,6 @@ if uploaded_file:
 
         st.markdown("---")
 
-        # ── SECTION 1: Flagged Riders ────────────────────────────────────
         st.subheader(f"🚨 Riders Exceeding AED {threshold} — Flagged Entries")
 
         if flagged.empty:
@@ -78,7 +76,6 @@ if uploaded_file:
             flagged_display["COD"] = flagged_display["COD"].map(lambda x: f"AED {x:,.0f}")
             st.dataframe(flagged_display.reset_index(drop=True), use_container_width=True)
 
-        # ── SECTION 2: Per-Rider COD Summary ─────────────────────────────
         st.subheader("📊 Per-Rider COD Summary")
         rider_summary = df.groupby("Rider").agg(
             TotalCOD=("COD", "sum"),
@@ -101,7 +98,6 @@ if uploaded_file:
         fig_rider.update_layout(coloraxis_showscale=False, xaxis_tickangle=-45)
         st.plotly_chart(fig_rider, use_container_width=True)
 
-        # ── SECTION 3: Habitual vs Situational Classification ────────────
         st.subheader("🔴 Habitual vs Situational Breach Classification")
 
         def classify(row):
@@ -142,7 +138,6 @@ if uploaded_file:
             else:
                 st.dataframe(habitual.reset_index(drop=True), use_container_width=True)
 
-        # ── SECTION 4: Action Tier Recommendation ────────────────────────
         st.subheader("📋 Recommended Action Tiers")
 
         def action_tier(row):
@@ -163,7 +158,6 @@ if uploaded_file:
         action_display["BreachRate"] = action_display["BreachRate"].map(lambda x: f"{x}%")
         st.dataframe(action_display.reset_index(drop=True), use_container_width=True)
 
-        # ── SECTION 5: Monthly COD Trend ─────────────────────────────────
         if "Month" in df.columns:
             st.subheader("📈 Monthly COD Trend")
             monthly = df.groupby("Month").agg(
@@ -172,6 +166,7 @@ if uploaded_file:
                 Breaches=("COD", lambda x: (x > threshold).sum())
             ).reset_index()
 
+            from plotly.subplots import make_subplots
             fig_trend = make_subplots(specs=[[{"secondary_y": True}]])
             fig_trend.add_trace(go.Bar(x=monthly["Month"], y=monthly["TotalCOD"],
                                        name="Total COD", marker_color="#3498db"), secondary_y=False)
@@ -183,7 +178,6 @@ if uploaded_file:
             fig_trend.update_yaxes(title_text="Number of Breaches", secondary_y=True)
             st.plotly_chart(fig_trend, use_container_width=True)
 
-        # ── SECTION 6: COD Distribution ──────────────────────────────────
         st.subheader("📦 COD Value Distribution")
         fig_hist = px.histogram(df, x="COD", nbins=30,
                                 title="Distribution of COD Values",
@@ -192,7 +186,7 @@ if uploaded_file:
                            annotation_text=f"Threshold: AED {threshold}")
         st.plotly_chart(fig_hist, use_container_width=True)
 
-        # ── SECTION 7: Build email content & save to session_state ───────
+        # Build email content and save to session_state
         flagged_riders = action_display[action_display["RecommendedAction"] != "No Action"].copy() if not action_display.empty else pd.DataFrame()
         rider_rows = ""
         for _, row in flagged_riders.iterrows():
@@ -218,7 +212,7 @@ if uploaded_file:
           </div>
         </body></html>"""
 
-        # Save to session_state — persists across Streamlit reruns caused by form submit
+        # Save to session_state - persists across Streamlit reruns caused by form submit
         st.session_state.dash2_data = {
             "action_display": action_display,
             "email_html":     email_html,
@@ -228,7 +222,7 @@ if uploaded_file:
             "flagged":        flagged,
         }
 
-    # ── EMAIL TRIGGER + EXPORT — outside button block so they survive reruns ──
+    # EMAIL TRIGGER + EXPORT - outside button block so they survive reruns
     if "dash2_data" in st.session_state:
         d = st.session_state.dash2_data
 
@@ -319,7 +313,6 @@ if uploaded_file:
         elif st.session_state.email_status == "error":
             st.error(st.session_state.email_msg)
 
-        # ── Export ───────────────────────────────────────────────────────
         st.subheader("⬇️ Export Report")
         out = BytesIO()
         with pd.ExcelWriter(out, engine="openpyxl") as writer:
@@ -332,7 +325,7 @@ if uploaded_file:
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 else:
-    st.info("👆 Please upload the noon operational Excel file to get started.")
+    st.info("☝️ Please upload the noon operational Excel file to get started.")
     with st.expander("ℹ️ Expected Data Format"):
         st.markdown("""
         **COD Sheet:**
